@@ -2,7 +2,6 @@ package ru.mtuci.rbpo_2024_praktika.service.impl;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import ru.mtuci.rbpo_2024_praktika.model.Demo;
 import ru.mtuci.rbpo_2024_praktika.repository.DemoRepository;
 import ru.mtuci.rbpo_2024_praktika.repository.DetailsRepository;
 import ru.mtuci.rbpo_2024_praktika.service.DemoService;
