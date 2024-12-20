@@ -1,15 +1,18 @@
 spring:
   application:
-    name: demo
+    name: ukhanov
   datasource:
-    url: jdbc:postgresql://localhost:5432/sandbox
-    username: ${JDBC_USER}
+    url: jdbc:postgresql://localhost:5432/data
+    username: ${JDBC_USERNAME}
     password: ${JDBC_PASSWORD}
   jpa:
+    show-sql: true
     hibernate:
       ddl-auto: update
-    show-sql: true
+    open-in-view: false
+  thymeleaf:
+    check-template-location: false
 
 jwt:
-  secret: MatorinFedorAndreevichBIB101200000
+  secret: ${SECRET_JAVA}
   expiration: 3600000
