@@ -1,13 +1,13 @@
 package ru.mtuci.ukhanov.service.impl;
 
-import ru.mtuci.ukhanov.models.ApplicationUser;
-import ru.mtuci.ukhanov.models.UserDetailsImpl;
-import ru.mtuci.ukhanov.repositories.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
+import ru.mtuci.ukhanov.model.ApplicationUser;
+import ru.mtuci.ukhanov.model.UserDetailsImpl;
+import ru.mtuci.ukhanov.repository.UserRepository;
 
 @Service
 @RequiredArgsConstructor

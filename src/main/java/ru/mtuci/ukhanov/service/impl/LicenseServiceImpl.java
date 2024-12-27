@@ -5,19 +5,27 @@ import ru.mtuci.ukhanov.exceptions.categories.License.LicenseNotFoundException;
 import ru.mtuci.ukhanov.exceptions.categories.LicenseTypeNotFoundException;
 import ru.mtuci.ukhanov.exceptions.categories.ProductNotFoundException;
 import ru.mtuci.ukhanov.exceptions.categories.UserNotFoundException;
-import ru.mtuci.ukhanov.models.*;
-import ru.mtuci.ukhanov.repositories.LicenseRepository;
-import ru.mtuci.ukhanov.requests.DataLicenseRequest;
+import ru.mtuci.ukhanov.model.*;
+import ru.mtuci.ukhanov.repository.DeviceLicenseRepository;
+import ru.mtuci.ukhanov.repository.LicenseRepository;
+import ru.mtuci.ukhanov.request.DataLicenseRequest;
 import ru.mtuci.ukhanov.service.LicenseService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
-import java.sql.Date;
-import java.text.Format;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+
 import java.text.SimpleDateFormat;
-import java.util.List;
+
+import java.sql.Date;
+import java.util.Base64;
+import java.util.stream.Collectors;
+
+
+
 
 @Service
 @RequiredArgsConstructor
@@ -28,154 +36,278 @@ public class LicenseServiceImpl implements LicenseService {
     private final LicenseTypeServiceImpl licenseTypeService;
     private final LicenseHistoryServiceImpl licenseHistoryService;
     private final DeviceLicenseServiceImpl deviceLicenseService;
+    private final DeviceLicenseRepository deviceLicenseRepository;
+
 
     @Override
     public License createLicense(
             Long productId, Long ownerId, Long licenseTypeId,
             Integer device_count, Long duration) {
-        Product product = productService.getProductById(productId).orElseThrow(
-                () -> new ProductNotFoundException("Продукт не найден"));
-        ApplicationUser owner = userService.getUserById(ownerId).orElseThrow(
-                () -> new UserNotFoundException("Пользователь не найден"));
-        LicenseType licenseType = licenseTypeService.getLicenseTypeById(licenseTypeId).orElseThrow(
-                () -> new LicenseTypeNotFoundException("Тип лицензии не найден"));
+        // Проверка входных параметров
+        if (productId == null || ownerId == null || licenseTypeId == null) {
+            throw new IllegalArgumentException("Необходимо указать все параметры: продукт, владелец и тип лицензии");
+        }
 
-        // Создание новой лицензии
+        // Валидация входных данных с информативными сообщениями об ошибках
+        Product product = productService.getProductById(productId)
+                .orElseThrow(() -> new ProductNotFoundException("Продукт с ID " + productId + " не найден"));
+
+        if (product.is_blocked()) {
+            throw new IllegalStateException("Невозможно создать лицензию для заблокированного продукта");
+        }
+
+        ApplicationUser owner = userService.getUserById(ownerId)
+                .orElseThrow(() -> new UserNotFoundException("Владелец с ID " + ownerId + " не найден"));
+
+        LicenseType licenseType = licenseTypeService.getLicenseTypeById(licenseTypeId)
+                .orElseThrow(() -> new LicenseTypeNotFoundException("Тип лицензии с ID " + licenseTypeId + " не найден"));
+
+        // Проверка количества устройств
+        if (device_count <= 0) {
+            throw new IllegalArgumentException("Количество устройств должно быть положительным");
+        }
+
+        // Определение длительности лицензии
+        Long effectiveDuration = (duration == null || duration == 0)
+                ? licenseType.getDefault_duration()
+                : duration;
+
+        // Создание новой лицензии с расширенной логикой
         License license = new License();
-
-        // Установка свойств лицензии
-        license.setDevice_count(device_count);
-        license.setBlocked(false);
-        license.setUser(null);
-
-        // Активация только при введении кода
-        license.setFirst_activation_date(null);
-
-        // Генерация активационного кода
-        String code = generateCodeLicense(productId, ownerId, licenseTypeId, device_count);
-        license.setCode(code);
-
-        // Установка владельца, продукта, типа
         license.setProduct(product);
         license.setOwner(owner);
         license.setLicenseType(licenseType);
+        license.setDevice_count(device_count);
+        license.setBlocked(false);
+        license.setUser(null);
+        license.setFirst_activation_date(null);
+        license.setDuration(effectiveDuration);
 
-        // Проверка параметров
-        if (duration == 0)
-            duration = licenseType.getDefault_duration();
-        license.setDuration(duration);
 
-        // Расчёт даты окончания
-        Date endDate = new Date(System.currentTimeMillis() + duration*1000);
-        license.setEnding_date(endDate);
+        // Генерация уникального кода лицензии
+        String code = generateSecureCodeLicense(productId, ownerId, licenseTypeId, device_count);
+        license.setCode(code);
 
-        StringBuilder description = new StringBuilder();
-        description.append(String.format("Тип лицензии: %s\n", licenseType.getName()));
-        description.append(String.format("Продукт: %s\n", product.getName()));
-        description.append(String.format("Владелец: %s\n", owner.getLogin()));
-        description.append(String.format("Кол-во устройств: %d\n", device_count));
+        // Формирование подробного описания лицензии
+        String description = buildLicenseDescription(license);
+        license.setDescription(description);
 
-        Format formatter = new SimpleDateFormat("dd.MM.yyyy");
-        description.append(String.format("Действует до: %s\n", formatter.format(endDate)));
-
-        license.setDescription(description.toString());
+        // Сохранение лицензии
         license = licenseRepository.save(license);
 
-        licenseHistoryService.recordLicenseChange(license, owner, LicenseHistoryStatus.CREATE.name(), description.toString());
+        // Запись истории создания лицензии
+        licenseHistoryService.recordLicenseChange(
+                license,
+                owner,
+                LicenseHistoryStatus.CREATE.name(),
+                description
+        );
+
         return license;
+    }
+
+    private String generateSecureCodeLicense(Long productId, Long ownerId, Long licenseTypeId, Integer device_count) {
+        try {
+            String rawCode = String.format("%d|%d|%d|%d|%s", 
+                productId, 
+                ownerId, 
+                licenseTypeId, 
+                device_count,
+                UUID.randomUUID()
+            );
+
+            String encodedCode = Base64.getUrlEncoder()
+                .withoutPadding()
+                .encodeToString(rawCode.getBytes(StandardCharsets.UTF_8));
+
+            return encodedCode
+                .substring(0, Math.min(encodedCode.length(), 16))
+                .toUpperCase()
+                .replace('/', 'X')
+                .replace('+', 'Y');
+        } catch (Exception e) {
+            throw new RuntimeException("Ошибка генерации кода лицензии", e);
+        }
+    }
+
+    private String buildLicenseDescription(License license) {
+        SimpleDateFormat formatter = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss");
+        return String.format(
+                "Лицензия:" +
+                "- Продукт: %s" +
+                "- Тип: %s"+
+                "- Владелец: %s" +
+                "- Количество устройств: %d" +
+                "- Создана: %s",
+                license.getProduct().getName(),
+                license.getLicenseType().getName(),
+                license.getOwner().getLogin(),
+                license.getDevice_count(),
+                formatter.format(new Date(System.currentTimeMillis()))
+        );
     }
 
 
     @Override
     public Ticket activateLicense(String activationCode, Device device, ApplicationUser user) {
-        License license = licenseRepository.findByCode(activationCode).orElseThrow(
-                () -> new LicenseNotFoundException("Лицензция не найдена")
-        );
+        // Поиск лицензии по коду активации с детальной обработкой
+        License license = licenseRepository.findByCode(activationCode)
+                .orElseThrow(() -> new LicenseNotFoundException("Лицензия не найдена"));
 
-        if (!validateLicense(license, device, user))
-        {
-            licenseHistoryService.recordLicenseChange(license, user, LicenseHistoryStatus.ERROR.name(), "Активация лицензии невозможна");
-            throw new LicenseErrorActivationException("Активация невозможна");
+        // Расширенная валидация лицензии с подробным описанием причин отказа
+        ValidationResult validationResult = validateLicenseActivation(license, device, user);
+
+        if (!validationResult.isValid()) {
+            // Логирование неудачной попытки активации
+            licenseHistoryService.recordLicenseChange(
+                    license,
+                    user,
+                    LicenseHistoryStatus.ERROR.name(),
+                    validationResult.getErrorMessage()
+            );
+            throw new LicenseErrorActivationException(validationResult.getErrorMessage());
         }
 
-        if (license.getUser() == null)
+        //Перенесена дата окончания лицензии до момента активации
+        if (license.getUser() == null) {
             license.setUser(user);
+            license.setFirst_activation_date(new Date(System.currentTimeMillis()));
+            Date endDate = new Date(System.currentTimeMillis() + license.getDuration() * 1000);
+            license.setEnding_date(endDate);
+
+        }
+
+        // Обновление лицензии
         updateLicense(license);
 
+        // Создание связи устройство-лицензия
         createDeviceLicense(license, device);
 
-        licenseHistoryService.recordLicenseChange(license, user, LicenseHistoryStatus.ACTIVATE.name(), "Лицензия успешно активирована");
-        return generateTicket(license, device, "Лицензия активировна");
+        // Запись истории активации
+        licenseHistoryService.recordLicenseChange(
+                license,
+                user,
+                LicenseHistoryStatus.ACTIVATE.name(),
+                "Лицензия успешно активирована на устройстве " + device.getName()
+        );
+
+        // Генерация билета
+        return generateTicket(license, device, "Лицензия успешно активирована");
+    }
+
+    private ValidationResult validateLicenseActivation(License license, Device device, ApplicationUser user) {
+        // Проверка блокировки лицензии
+        if (license.isBlocked()) {
+            return ValidationResult.invalid("Лицензия заблокирована");
+        }
+
+        // Проверка даты окончания лицензии
+        Date currentDate = new Date(System.currentTimeMillis());
+        if (license.getEnding_date() != null){
+            if (license.getEnding_date().before(currentDate)) {
+                return ValidationResult.invalid("Срок действия лицензии истек");
+            }
+        }
+
+        // Проверка пользователя
+        if (license.getUser() != null && !license.getUser().getId().equals(user.getId())) {
+            return ValidationResult.invalid("Лицензия принадлежит другому пользователю");
+        }
+
+        // Проверка количества устройств
+        long activeDevicesCount = license.getDeviceLicenses().size();
+        if (activeDevicesCount >= license.getDevice_count()) {
+            return ValidationResult.invalid("Достигнуто максимальное количество устройств");
+        }
+
+        // Проверка уникальности устройства
+        boolean deviceAlreadyActivated = license.getDeviceLicenses().stream()
+                .anyMatch(dl -> dl.getDevice().getId().equals(device.getId()));
+
+        if (deviceAlreadyActivated) {
+            return ValidationResult.invalid("Устройство уже активировано для этой лицензии");
+        }
+
+        return ValidationResult.valid();
     }
 
     @Override
     public boolean validateLicense(License license, Device device, ApplicationUser user) {
-        /*
-        ======================================================================
-            лицензция заблокирована или
-            лицензия принадлежит другому пользователю или
-            лицензия на данное устройство уже активирована или
-            достигнуто максимальное кол-во устройств для активации или
-            срок действия лицензии истёк
-            то лицензию невозожно активировать
-        ======================================================================
-        */
+        ValidationResult validationResult = validateLicenseActivation(license, device, user);
+        return validationResult.isValid();
+    }
 
-        return !license.isBlocked() &&
-                (license.getUser() == null || license.getUser().getId().equals(user.getId())) &&
-                license.getDeviceLicenses().stream().noneMatch(deviceLicense ->
-                        deviceLicense.getDevice().getId().equals(device.getId()) &&
-                        deviceLicense.getLicense().getId().equals(license.getId())
-                        ) &&
-                license.getDeviceLicenses().size() < license.getDevice_count() &&
-                new Date(System.currentTimeMillis()).before(license.getEnding_date());
+    @Override
+    public License getLicenseByActivationCode(String activationCode) {
+        return licenseRepository.findByCode(activationCode)
+            .orElseThrow(() -> new LicenseNotFoundException("Лицензия с указанным кодом активации не найдена"));
     }
 
     @Override
     public void createDeviceLicense(License license, Device device) {
+        Optional<DeviceLicense> existingDeviceLicense = deviceLicenseRepository.findByDeviceAndLicense(device, license);
+
+        if (existingDeviceLicense.isPresent()) {
+            throw new IllegalStateException("Устройство уже имеет активацию для этой лицензии");
+        }
+
         DeviceLicense deviceLicense = new DeviceLicense();
         deviceLicense.setDevice(device);
         deviceLicense.setLicense(license);
-        deviceLicense.setActivation_date(license.getFirst_activation_date());
+        deviceLicense.setActivation_date(getCurrentSecureDate());
+
         deviceLicenseService.saveDeviceLicense(deviceLicense);
+    }
+    // Защита даты активации
+    private Date getCurrentSecureDate() {
+        return new Date(System.currentTimeMillis());
     }
 
     @Override
     public void updateLicense(License license) {
-        if (license.getFirst_activation_date() == null)
+        // Обновление даты первой активации, если еще не установлена
+        if (license.getFirst_activation_date() == null) {
             license.setFirst_activation_date(new Date(System.currentTimeMillis()));
+        }
 
-        Format formatter = new SimpleDateFormat("dd.MM.yyyy");
-        license.setDescription(license.getDescription() + String.format("Пользователь: %s\n"+
-                                "Впервые активирована: %s\nАктивированных устройств: %d",
-                        license.getUser().getLogin(),
-                        formatter.format(license.getFirst_activation_date()),
-                        license.getDeviceLicenses().size() + 1
-                        )
+        // Формирование подробного описания
+        SimpleDateFormat formatter = new SimpleDateFormat("dd.MM.yyyy HH:mm:ss");
+        String updateDescription = String.format(
+                "Лицензия обновлена:\n" +
+                        "Пользователь: %s\n" +
+                        "Первая активация: %s\n" +
+                        "Активированных устройств: %d\n" +
+                        "Осталось активаций: %d",
+                license.getUser().getLogin(),
+                formatter.format(license.getFirst_activation_date()),
+                license.getDeviceLicenses().size(),
+                license.getDevice_count() - license.getDeviceLicenses().size()
         );
 
-        license = licenseRepository.save(license);
-        licenseHistoryService.recordLicenseChange(license, license.getUser(), LicenseHistoryStatus.MODIFICATION.name(), license.getDescription());
+        license.setDescription(updateDescription);
+
+        // Сохранение обновленной лицензии
+        licenseRepository.save(license);
+
+        // Запись изменений в историю
+        licenseHistoryService.recordLicenseChange(
+                license,
+                license.getUser(),
+                LicenseHistoryStatus.MODIFICATION.name(),
+                updateDescription
+        );
     }
 
     @Override
     public List<License> getActiveLicensesForDevice(Device device, ApplicationUser user) {
-        /*
-        ======================================================================
-        лицензия активна если:
-            - лицензция не заблокирована
-            - лицензиию имеет текущий пользователь
-            - срок действия лицензии не истёк
-        ======================================================================
-        */
-
         return device.getDeviceLicenses().stream()
                 .map(DeviceLicense::getLicense)
                 .filter(license ->
                         license.getUser().getId().equals(user.getId()) &&
                                 !license.isBlocked() &&
                                 license.getEnding_date().after(new Date(System.currentTimeMillis()))
-                ).toList();
+                )
+                .collect(Collectors.toList());
     }
 
     private License edit(License license, DataLicenseRequest request) {
@@ -223,11 +355,6 @@ public class LicenseServiceImpl implements LicenseService {
         licenseRepository.deleteById(id);
     }
 
-//    @Override
-//    public Optional<License> findLicenseById(Long id) {
-//        return licenseRepository.findById(id);
-//    }
-
     @Override
     public Ticket generateTicket(License license, Device device, String description) {
         Ticket ticket = new Ticket();
@@ -250,43 +377,126 @@ public class LicenseServiceImpl implements LicenseService {
         return ticket;
     }
 
+    private Long parseRenewalDuration(String duration, License license) {
+        try {
+            // Возможность продления лицензии по месяцам
+            if (duration != null && !duration.isEmpty()) {
+                long month = Long.parseLong(duration);
+                return month * 30 * 24 * 60 * 60;
+            }
+            return license.getLicenseType().getDefault_duration();
+        } catch (NumberFormatException e) {
+            return license.getLicenseType().getDefault_duration();
+        }
+    }
+
     @Override
-    public List<Ticket> licenseRenewal(String activationCode, ApplicationUser user) {
-        // Проверка ключа лицензии
-        License license = licenseRepository.findByCode(activationCode).orElseThrow(
-                () -> new LicenseNotFoundException("Ключ лицензии недействителен")
-        );
+    public List<Ticket> licenseRenewal(String activationCode, ApplicationUser user, String duration) {
+        // Получаем лицензию
+        License license = licenseRepository.findByCode(activationCode)
+                .orElseThrow(() -> new LicenseNotFoundException("Ключ лицензии недействителен"));
 
+        // Создаем список билетов для каждого устройства
         List<Ticket> tickets = license.getDeviceLicenses().stream()
-                .map(deviceLicense -> generateTicket(license, deviceLicense.getDevice(), "")).toList();
+                .map(deviceLicense -> generateTicket(license, deviceLicense.getDevice(), ""))
+                .collect(Collectors.toList());
 
-        // Проверка возможности продления
-        if (
-                license.isBlocked() ||
-                license.getEnding_date().before(new Date(System.currentTimeMillis()))  ||
-                (license.getUser() != null && !license.getUser().getId().equals(user.getId()))
-        )
-        {
+        // Проверки возможности продления
+        ValidationResult validationResult = validateLicenseRenewal(license, user);
+
+        if (!validationResult.isValid()) {
+            // Обработка невозможности продления
             tickets.forEach(ticket -> {
-                ticket.setDescription("Невозможно продлить лицензию");
-                licenseHistoryService.recordLicenseChange(license, user, LicenseHistoryStatus.ERROR.name(), ticket.getDescription());
+                ticket.setDescription(validationResult.getErrorMessage());
+                licenseHistoryService.recordLicenseChange(
+                        license,
+                        user,
+                        LicenseHistoryStatus.ERROR.name(),
+                        validationResult.getErrorMessage()
+                );
             });
             return tickets;
         }
 
-        // Продление на год
-        license.setDuration(license.getLicenseType().getDefault_duration());
-        license.setEnding_date(new Date(System.currentTimeMillis() + license.getDuration()*1000));
+        // Продление лицензии
+        Long renewalDuration = parseRenewalDuration(duration, license);
 
+        extendLicense(license, user, renewalDuration);
+
+        // Обновление билетов и история
         tickets.forEach(ticket -> {
             ticket.setDescription("Лицензия успешно продлена");
-            licenseHistoryService.recordLicenseChange(license, user, LicenseHistoryStatus.MODIFICATION.name(), ticket.getDescription());
+            ticket.setExpirationDate(license.getEnding_date());
+            ticket.setExpiration(license.getDuration());
+
+            licenseHistoryService.recordLicenseChange(
+                    license,
+                    user,
+                    LicenseHistoryStatus.MODIFICATION.name(),
+                    "Лицензия продлена на стандартный период"
+            );
         });
+
         return tickets;
     }
 
-    private String generateCodeLicense(Long productId, Long ownerId, Long licenseTypeId, Integer device_count) {
-        BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
-        return encoder.encode(productId.toString() + ownerId.toString() + licenseTypeId.toString() + device_count.toString());
+    // Метод валидации продления лицензии
+    private ValidationResult validateLicenseRenewal(License license, ApplicationUser user) {
+        // Проверка блокировки
+        if (license.isBlocked()) {
+            return ValidationResult.invalid("Лицензия заблокирована");
+        }
+
+        // Проверка пользователя
+        if (license.getUser() != null && !license.getUser().getId().equals(user.getId())) {
+            return ValidationResult.invalid("Недостаточно прав для продления");
+        }
+
+        // Дополнительные проверки
+        Date currentDate = new Date(System.currentTimeMillis());
+
+        // Максимальная длительность лицензии (5 лет)
+        long maxLicenseDuration = 5L * 365 * 24 * 60 * 60 * 1000; // 5 лет в миллисекундах
+
+        // Если текущая длительность + новый период превышает максимальную
+        long newEndTime = license.getEnding_date().getTime() +
+                license.getLicenseType().getDefault_duration() * 1000;
+
+        if (newEndTime - currentDate.getTime() > maxLicenseDuration) {
+            return ValidationResult.invalid("Превышена максимальная длительность лицензии");
+        }
+
+        // Если лицензия просрочена более чем на 30 дней
+        long thirtyDaysInMillis = 30L * 24 * 60 * 60 * 1000;
+        if (license.getEnding_date().getTime() + thirtyDaysInMillis < currentDate.getTime()) {
+            return ValidationResult.invalid("Лицензия просрочена более чем на 30 дней");
+        }
+
+        return ValidationResult.valid();
     }
+
+
+
+    // Метод продления лицензии
+    private void extendLicense(License license, ApplicationUser user, Long defaultDuration) {
+
+        // Расчет новой даты окончания
+        Date currentDate = new Date(System.currentTimeMillis());
+        Date newEndDate = license.getEnding_date().before(currentDate)
+                ? new Date(currentDate.getTime() + defaultDuration * 1000)
+                : new Date(license.getEnding_date().getTime() + defaultDuration * 1000);
+
+        // Обновляем параметры лицензии
+        license.setEnding_date(newEndDate);
+        license.setDuration(license.getDuration() + defaultDuration);
+
+        // Если пользователь не установлен, устанавливаем
+        if (license.getUser() == null) {
+            license.setUser(user);
+        }
+
+        // Сохраняем лицензию
+        licenseRepository.save(license);
+    }
+
 }

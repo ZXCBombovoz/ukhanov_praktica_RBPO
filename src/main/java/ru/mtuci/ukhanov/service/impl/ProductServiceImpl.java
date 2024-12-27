@@ -1,9 +1,9 @@
 package ru.mtuci.ukhanov.service.impl;
 
 import ru.mtuci.ukhanov.exceptions.categories.ProductNotFoundException;
-import ru.mtuci.ukhanov.models.Product;
-import ru.mtuci.ukhanov.repositories.ProductRepository;
-import ru.mtuci.ukhanov.requests.DataProductRequest;
+import ru.mtuci.ukhanov.model.Product;
+import ru.mtuci.ukhanov.repository.ProductRepository;
+import ru.mtuci.ukhanov.request.DataProductRequest;
 import ru.mtuci.ukhanov.service.ProductService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;

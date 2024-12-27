@@ -2,10 +2,10 @@ package ru.mtuci.ukhanov.service.impl;
 
 import ru.mtuci.ukhanov.configuration.SecurityConfig;
 import ru.mtuci.ukhanov.exceptions.categories.UserNotFoundException;
-import ru.mtuci.ukhanov.models.ApplicationRole;
-import ru.mtuci.ukhanov.models.ApplicationUser;
-import ru.mtuci.ukhanov.repositories.UserRepository;
-import ru.mtuci.ukhanov.requests.DataUserRequest;
+import ru.mtuci.ukhanov.model.ApplicationRole;
+import ru.mtuci.ukhanov.model.ApplicationUser;
+import ru.mtuci.ukhanov.repository.UserRepository;
+import ru.mtuci.ukhanov.request.DataUserRequest;
 import ru.mtuci.ukhanov.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;

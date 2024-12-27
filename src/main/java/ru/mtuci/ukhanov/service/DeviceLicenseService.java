@@ -1,7 +1,7 @@
 package ru.mtuci.ukhanov.service;
 
-import ru.mtuci.ukhanov.models.DeviceLicense;
-import ru.mtuci.ukhanov.requests.DataDeviceLicenseRequest;
+import ru.mtuci.ukhanov.model.DeviceLicense;
+import ru.mtuci.ukhanov.request.DataDeviceLicenseRequest;
 
 import java.util.List;
 

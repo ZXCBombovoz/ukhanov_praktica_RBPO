@@ -1,9 +1,9 @@
 package ru.mtuci.ukhanov.service;
 
-import ru.mtuci.ukhanov.models.ApplicationUser;
-import ru.mtuci.ukhanov.models.License;
-import ru.mtuci.ukhanov.models.LicenseHistory;
-import ru.mtuci.ukhanov.requests.DataLicenseHistoryRequest;
+import ru.mtuci.ukhanov.model.ApplicationUser;
+import ru.mtuci.ukhanov.model.License;
+import ru.mtuci.ukhanov.model.LicenseHistory;
+import ru.mtuci.ukhanov.request.DataLicenseHistoryRequest;
 
 import java.util.List;
 import java.util.Optional;

@@ -1,8 +1,8 @@
 package ru.mtuci.ukhanov.service;
 
 
-import ru.mtuci.ukhanov.models.Product;
-import ru.mtuci.ukhanov.requests.DataProductRequest;
+import ru.mtuci.ukhanov.model.Product;
+import ru.mtuci.ukhanov.request.DataProductRequest;
 
 import java.util.List;
 import java.util.Optional;

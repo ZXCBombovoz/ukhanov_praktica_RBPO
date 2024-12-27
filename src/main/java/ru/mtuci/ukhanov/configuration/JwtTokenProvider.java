@@ -1,6 +1,5 @@
 package ru.mtuci.ukhanov.configuration;
 
-import ru.mtuci.ukhanov.service.impl.UserDetailsServiceImpl;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -10,18 +9,19 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.stereotype.Component;
 
 import java.security.Key;
-import java.util.*;
-import java.util.function.Function;
+import java.util.Date;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Component
 @RequiredArgsConstructor
 public class JwtTokenProvider {
 
-    private final UserDetailsServiceImpl userDetailsService;
+    private final UserDetailsService userDetailsService;
 
     @Value("${jwt.secret}")
     private String secret;
@@ -29,34 +29,28 @@ public class JwtTokenProvider {
     @Value("${jwt.expiration}")
     private long expiration;
 
-    private Key getSigningKey() { return Keys.hmacShaKeyFor(secret.getBytes()); }
-
-    private Claims extractAllClaims(String token) {
-        return Jwts.parser()
-                .setSigningKey(getSigningKey())
-                .parseClaimsJws(token)
-                .getBody();
-    }
-
-    private <T> T extractClaim(String token, Function<Claims, T> claimsResolvers) {
-        final Claims claims = extractAllClaims(token);
-        return claimsResolvers.apply(claims);
+    private Key getSigningKey() {
+        return Keys.hmacShaKeyFor(secret.getBytes());
     }
 
     public String createToken(String username, Set<GrantedAuthority> authorities) {
         Claims claims = Jwts.claims().setSubject(username);
-        claims.put("auth", authorities.stream().map(GrantedAuthority::getAuthority).collect(Collectors.toList()));
+        claims.put("auth", authorities.stream()
+                .map(GrantedAuthority::getAuthority)
+                .collect(Collectors.toList())
+        );
+
         Date now = new Date();
-        Date validateTime = new Date(now.getTime() + expiration);
+        Date expiationDate = new Date(now.getTime() + expiration);
 
         return Jwts.builder()
                 .setClaims(claims)
                 .setIssuedAt(now)
-                .setExpiration(validateTime)
+                .setExpiration(expiationDate)
                 .signWith(getSigningKey())
                 .compact();
-
     }
+
     public boolean validateToken(String token) {
         try {
             Jwts.parser()
@@ -66,6 +60,7 @@ public class JwtTokenProvider {
         } catch (Exception e) {
             return false;
         }
+
     }
 
     public String getUsername(String token) {
@@ -74,11 +69,12 @@ public class JwtTokenProvider {
                 .parseClaimsJws(token)
                 .getBody()
                 .getSubject();
+
     }
 
     public Authentication getAuthentication(String token) {
         String login = getUsername(token);
         UserDetails user = userDetailsService.loadUserByUsername(login);
-        return new UsernamePasswordAuthenticationToken(user, "", user.getAuthorities());
+        return new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities());
     }
 }

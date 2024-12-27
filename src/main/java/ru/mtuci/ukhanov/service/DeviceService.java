@@ -1,8 +1,8 @@
 package ru.mtuci.ukhanov.service;
 
-import ru.mtuci.ukhanov.models.ApplicationUser;
-import ru.mtuci.ukhanov.models.Device;
-import ru.mtuci.ukhanov.requests.DataDeviceRequest;
+import ru.mtuci.ukhanov.model.ApplicationUser;
+import ru.mtuci.ukhanov.model.Device;
+import ru.mtuci.ukhanov.request.DataDeviceRequest;
 
 import java.util.List;
 import java.util.Optional;

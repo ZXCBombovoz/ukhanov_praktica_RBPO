@@ -1,7 +1,7 @@
 package ru.mtuci.ukhanov.service;
 
-import ru.mtuci.ukhanov.models.LicenseType;
-import ru.mtuci.ukhanov.requests.DataLicenseTypeRequest;
+import ru.mtuci.ukhanov.model.LicenseType;
+import ru.mtuci.ukhanov.request.DataLicenseTypeRequest;
 
 import java.util.List;
 import java.util.Optional;

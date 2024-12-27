@@ -1,6 +1,6 @@
 package ru.mtuci.ukhanov.service.impl;
 
-import ru.mtuci.ukhanov.models.ApplicationUser;
+import ru.mtuci.ukhanov.model.ApplicationUser;
 import ru.mtuci.ukhanov.service.AutheneticationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.AuthenticationManager;

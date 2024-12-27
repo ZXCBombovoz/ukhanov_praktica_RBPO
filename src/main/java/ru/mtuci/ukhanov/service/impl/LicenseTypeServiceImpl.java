@@ -1,9 +1,9 @@
 package ru.mtuci.ukhanov.service.impl;
 
 import ru.mtuci.ukhanov.exceptions.categories.LicenseTypeNotFoundException;
-import ru.mtuci.ukhanov.models.LicenseType;
-import ru.mtuci.ukhanov.repositories.LicenseTypeRepository;
-import ru.mtuci.ukhanov.requests.DataLicenseTypeRequest;
+import ru.mtuci.ukhanov.model.LicenseType;
+import ru.mtuci.ukhanov.repository.LicenseTypeRepository;
+import ru.mtuci.ukhanov.request.DataLicenseTypeRequest;
 import ru.mtuci.ukhanov.service.LicenseTypeService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;

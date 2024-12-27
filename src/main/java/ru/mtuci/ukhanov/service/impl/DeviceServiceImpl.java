@@ -2,10 +2,10 @@ package ru.mtuci.ukhanov.service.impl;
 
 import ru.mtuci.ukhanov.exceptions.categories.DeviceNotFoundException;
 import ru.mtuci.ukhanov.exceptions.categories.UserNotFoundException;
-import ru.mtuci.ukhanov.models.ApplicationUser;
-import ru.mtuci.ukhanov.models.Device;
-import ru.mtuci.ukhanov.repositories.DeviceRepository;
-import ru.mtuci.ukhanov.requests.DataDeviceRequest;
+import ru.mtuci.ukhanov.model.ApplicationUser;
+import ru.mtuci.ukhanov.model.Device;
+import ru.mtuci.ukhanov.repository.DeviceRepository;
+import ru.mtuci.ukhanov.request.DataDeviceRequest;
 import ru.mtuci.ukhanov.service.DeviceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -19,19 +19,12 @@ public class DeviceServiceImpl implements DeviceService {
     private final DeviceRepository deviceRepository;
     private final UserServiceImpl userServiceImpl;
 
-    private Device createDevice(String nameDevice, String macDevice, ApplicationUser user) {
-        Device device = new Device();
-        device.setName(nameDevice);
-        device.setMacAddress(macDevice);
-        device.setUser(user);
-        return deviceRepository.save(device);
-    }
+
 
     @Override
     public Device registerOrUpdateDevice(String nameDevice, String macDevice, ApplicationUser user) {
         Device device = deviceRepository.findByMacAddress(macDevice).orElse(null);
 
-        // новое устройство у пользователя
         if (device == null || !device.getUser().getId().equals(user.getId())) {
             device = new Device();
             device.setName(nameDevice);

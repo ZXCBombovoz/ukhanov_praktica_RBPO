@@ -1,10 +1,10 @@
 package ru.mtuci.ukhanov.service;
 
-import ru.mtuci.ukhanov.models.ApplicationUser;
-import ru.mtuci.ukhanov.models.Device;
-import ru.mtuci.ukhanov.models.License;
-import ru.mtuci.ukhanov.models.Ticket;
-import ru.mtuci.ukhanov.requests.DataLicenseRequest;
+import ru.mtuci.ukhanov.model.ApplicationUser;
+import ru.mtuci.ukhanov.model.Device;
+import ru.mtuci.ukhanov.model.License;
+import ru.mtuci.ukhanov.model.Ticket;
+import ru.mtuci.ukhanov.request.DataLicenseRequest;
 
 import java.util.List;
 
@@ -16,13 +16,15 @@ public interface LicenseService {
 
     Ticket activateLicense(String activationCode, Device device, ApplicationUser user);
     Ticket generateTicket(License license, Device device, String description);
-    List<Ticket> licenseRenewal(String activationCode, ApplicationUser user);
+    List<Ticket> licenseRenewal(String activationCode, ApplicationUser user, String durationAdd);
 
     boolean validateLicense(License license, Device device, ApplicationUser user);
     void createDeviceLicense(License license, Device device);
     void updateLicense(License license);
 
     List<License> getActiveLicensesForDevice(Device device, ApplicationUser user);
+
+    License getLicenseByActivationCode(String activationCode);
 
     // save
     License save(DataLicenseRequest request);
