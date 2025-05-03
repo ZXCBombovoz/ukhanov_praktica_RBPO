@@ -1,5 +1,8 @@
 package ru.mtuci.ukhanov.controller;
 
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
 import ru.mtuci.ukhanov.configuration.JwtTokenProvider;
 import ru.mtuci.ukhanov.exceptions.categories.AuthenticationErrorException;
 import ru.mtuci.ukhanov.exceptions.categories.UserNotFoundException;
@@ -9,9 +12,6 @@ import ru.mtuci.ukhanov.request.LicenseUpdateRequest;
 import ru.mtuci.ukhanov.service.impl.AuthenticationServiceImpl;
 import ru.mtuci.ukhanov.service.impl.LicenseServiceImpl;
 import ru.mtuci.ukhanov.service.impl.UserServiceImpl;
-import lombok.RequiredArgsConstructor;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
@@ -37,9 +37,8 @@ public class LicenseUpdateController {
             if (!authenticationService.authenticate(user, licenseUpdateRequest.getPassword()))
                 throw new AuthenticationErrorException("Аутентификация не удалась");
 
-            String durationAdd = licenseUpdateRequest.getDurationAdd();
             // запрос на продление
-            List<Ticket> tickets = licenseService.licenseRenewal(licenseUpdateRequest.getCodeActivation(), user, durationAdd);
+            List<Ticket> tickets = licenseService.licenseRenewal(licenseUpdateRequest.getCodeActivation(), user);
 
             return ResponseEntity.ok(tickets);
         } catch (RuntimeException e) {

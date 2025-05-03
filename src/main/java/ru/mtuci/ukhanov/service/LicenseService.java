@@ -12,19 +12,17 @@ public interface LicenseService {
     License createLicense(
             Long productId, Long ownerId, Long licenseTypeId,
             Integer device_count, Long duration
-            );
+    );
 
     Ticket activateLicense(String activationCode, Device device, ApplicationUser user);
     Ticket generateTicket(License license, Device device, String description);
-    List<Ticket> licenseRenewal(String activationCode, ApplicationUser user, String durationAdd);
+    List<Ticket> licenseRenewal(String activationCode, ApplicationUser user);
 
     boolean validateLicense(License license, Device device, ApplicationUser user);
     void createDeviceLicense(License license, Device device);
     void updateLicense(License license);
 
     List<License> getActiveLicensesForDevice(Device device, ApplicationUser user);
-
-    License getLicenseByActivationCode(String activationCode);
 
     // save
     License save(DataLicenseRequest request);
