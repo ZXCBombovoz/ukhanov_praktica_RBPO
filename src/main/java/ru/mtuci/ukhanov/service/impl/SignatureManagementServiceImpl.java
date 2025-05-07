@@ -8,15 +8,24 @@ import ru.mtuci.ukhanov.model.*;
 import ru.mtuci.ukhanov.repository.SignatureAuditRepository;
 import ru.mtuci.ukhanov.repository.SignatureHistoryRepository;
 import ru.mtuci.ukhanov.repository.SignatureRepository;
+import ru.mtuci.ukhanov.service.SignatureManagementService;
 import ru.mtuci.ukhanov.service.impl.SignatureServiceImpl;
 
+
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
+import java.security.SignatureException;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
-public class SignatureManagementServiceImpl {
+public class SignatureManagementServiceImpl implements SignatureManagementService {
     private final SignatureRepository signatureRepository;
     private final SignatureHistoryRepository signatureHistoryRepository;
     private final SignatureAuditRepository signatureAuditRepository;
@@ -24,7 +33,7 @@ public class SignatureManagementServiceImpl {
 
     @Transactional
     @PreAuthorize("hasRole('ADMIN')")
-    public SignatureEntity createSignature(SignatureEntity entity, String changedBy) throws Exception {
+    public SignatureEntity createSignature(SignatureEntity entity, String changedBy) throws NoSuchAlgorithmException, SignatureException, InvalidKeyException {
         SignatureEntity newEntity = new SignatureEntity();
         newEntity.setThreatName(entity.getThreatName());
         newEntity.setFirstBytes(entity.getFirstBytes());
@@ -49,28 +58,73 @@ public class SignatureManagementServiceImpl {
 
     @Transactional
     @PreAuthorize("hasRole('ADMIN')")
-    public SignatureEntity updateSignature(UUID id, SignatureEntity updatedEntity, String changedBy) throws Exception {
+    public SignatureEntity updateSignature(UUID id, SignatureEntity updatedEntity, String changedBy) throws NoSuchAlgorithmException, SignatureException, InvalidKeyException {
         SignatureEntity existing = signatureRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Сигнатура не найдена"));
 
         saveHistory(existing);
 
-        existing.setThreatName(updatedEntity.getThreatName());
-        existing.setFirstBytes(updatedEntity.getFirstBytes());
-        existing.setRemainderHash(updatedEntity.getRemainderHash());
-        existing.setRemainderLength(updatedEntity.getRemainderLength());
-        existing.setFileType(updatedEntity.getFileType());
-        existing.setOffsetStart(updatedEntity.getOffsetStart());
-        existing.setOffsetEnd(updatedEntity.getOffsetEnd());
-        existing.setUpdatedAt(LocalDateTime.now());
+        boolean isChanged = false;
+        StringBuilder changedFields = new StringBuilder();
 
-        byte[] dataToSign = signatureService.getDataToSign(existing);
-        byte[] signature = signatureService.sign(dataToSign);
-        existing.setDigitalSignature(signature);
+        if (updatedEntity.getThreatName() != null && !updatedEntity.getThreatName().equals(existing.getThreatName())) {
+            existing.setThreatName(updatedEntity.getThreatName());
+            addChangedField(changedFields, "threat_name");
+            isChanged = true;
+        }
 
-        SignatureEntity updated = signatureRepository.save(existing);
-        saveAudit(updated, "UPDATED", changedBy, "threat_name, first_bytes");
-        return updated;
+        if (updatedEntity.getOffsetStart() != null && !updatedEntity.getOffsetStart().equals(existing.getOffsetStart())) {
+            existing.setOffsetStart(updatedEntity.getOffsetStart());
+            addChangedField(changedFields, "offset_start");
+            isChanged = true;
+        }
+
+        if (updatedEntity.getOffsetEnd() != null && !updatedEntity.getOffsetEnd().equals(existing.getOffsetEnd())) {
+            existing.setOffsetEnd(updatedEntity.getOffsetEnd());
+            addChangedField(changedFields, "offset_end");
+            isChanged = true;
+        }
+
+
+        if (updatedEntity.getFileType() != null && !updatedEntity.getFileType().equals(existing.getFileType())) {
+            existing.setFileType(updatedEntity.getFileType());
+            addChangedField(changedFields, "file_type");
+            isChanged = true;
+        }
+
+        if (updatedEntity.getFirstBytes() != null && !Arrays.equals(updatedEntity.getFirstBytes(), existing.getFirstBytes())) {
+            existing.setFirstBytes(updatedEntity.getFirstBytes());
+            addChangedField(changedFields, "first_bytes");
+            isChanged = true;
+        }
+
+        if (updatedEntity.getRemainderHash() != null && !updatedEntity.equals(existing.getRemainderHash())) {
+            existing.setRemainderHash(updatedEntity.getRemainderHash());
+            addChangedField(changedFields, "remainder_hash");
+            isChanged = true;
+        }
+
+        if (updatedEntity.getRemainderLength() != null && !updatedEntity.getRemainderLength().equals(existing.getRemainderLength())) {
+            existing.setRemainderLength(updatedEntity.getRemainderLength());
+            addChangedField(changedFields, "remainder_length");
+            isChanged = true;
+        }
+
+        if (isChanged){
+            existing.setUpdatedAt(LocalDateTime.now());
+
+            byte[] dataToSign = signatureService.getDataToSign(existing);
+            byte [] signature = signatureService.sign(dataToSign);
+            existing.setDigitalSignature(signature);
+
+            SignatureEntity updated = signatureRepository.save(existing);
+            saveAudit(updated, "UPDATED", changedBy, changedFields.toString());
+            return updated;
+        }
+        else {
+           return existing;
+        }
+
     }
 
     @Transactional
@@ -108,6 +162,31 @@ public class SignatureManagementServiceImpl {
         return signatureRepository.findByStatus(status);
     }
 
+    @Transactional(readOnly = true)
+    public List<SignatureAudit> getAllAuditRecords() {
+        return signatureAuditRepository.findAll();
+    }
+
+    @Transactional(readOnly = true)
+    public List<SignatureAudit> getAuditRecordsBySignatureId(UUID signatureId) {
+        return signatureAuditRepository.findBySignatureId(signatureId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<SignatureAudit> getAuditRecordsByChangeType(String changeType) {
+        return signatureAuditRepository.findByChangeType(changeType);
+    }
+
+    @Transactional(readOnly = true)
+    public List<SignatureAudit> getAuditRecordsByChangedBy(String changedBy) {
+        return signatureAuditRepository.findByChangedBy(changedBy);
+    }
+
+    @Transactional(readOnly = true)
+    public List<SignatureAudit> getAuditRecordsByDateRange(LocalDateTime start, LocalDateTime end) {
+        return signatureAuditRepository.findByChangedAtBetween(start, end);
+    }
+
     private void saveHistory(SignatureEntity entity) {
         SignatureHistory history = new SignatureHistory();
         history.setSignatureId(entity.getId());
@@ -133,5 +212,39 @@ public class SignatureManagementServiceImpl {
         audit.setChangedAt(LocalDateTime.now());
         audit.setFieldsChanged(fieldsChanged);
         signatureAuditRepository.save(audit);
+    }
+
+    private void addChangedField(StringBuilder changedFields, String fieldName) {
+        if (changedFields.length() > 0) {
+            changedFields.append(", ");
+        }
+        changedFields.append(fieldName);
+    }
+
+    public byte[] serializeSignatureFields(SignatureEntity signature) {
+        try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
+             DataOutputStream dos = new DataOutputStream(baos)) {
+            dos.writeUTF(signature.getThreatName());
+            dos.writeInt(signature.getFirstBytes().length);
+            dos.write(signature.getFirstBytes());
+            dos.writeUTF(signature.getRemainderHash());
+            dos.writeInt(signature.getRemainderLength());
+            dos.writeUTF(signature.getFileType());
+            dos.writeInt(signature.getOffsetStart());
+            dos.writeInt(signature.getOffsetEnd());
+            return baos.toByteArray();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public byte[] generateManifestSignature(int count, byte[] massiveSignature) throws IOException, NoSuchAlgorithmException, SignatureException, InvalidKeyException {
+        try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
+             DataOutputStream dos = new DataOutputStream(baos)) {
+            dos.writeInt(count);
+            dos.write(massiveSignature);
+            byte[] data = baos.toByteArray();
+            return signatureService.sign(data);
+        }
     }
 }

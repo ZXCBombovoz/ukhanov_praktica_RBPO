@@ -3,16 +3,14 @@ package ru.mtuci.ukhanov.service.impl;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import ru.mtuci.ukhanov.model.SignatureEntity;
+import ru.mtuci.ukhanov.service.SignatureService;
 
+import java.security.*;
 import java.nio.charset.StandardCharsets;
-import java.security.KeyPair;
-import java.security.KeyPairGenerator;
-import java.security.NoSuchAlgorithmException;
-import java.security.Signature;
 
 @Service
 @RequiredArgsConstructor
-public class SignatureServiceImpl {
+public class SignatureServiceImpl  implements SignatureService {
     private final KeyPair keyPair;
 
     public SignatureServiceImpl() throws NoSuchAlgorithmException {
@@ -21,14 +19,14 @@ public class SignatureServiceImpl {
         this.keyPair = keyGen.generateKeyPair();
     }
 
-    public byte[] sign(byte[] data) throws Exception {
+    public byte[] sign(byte[] data) throws NoSuchAlgorithmException, InvalidKeyException, SignatureException {
         Signature signature = Signature.getInstance("SHA256withRSA");
         signature.initSign(keyPair.getPrivate());
         signature.update(data);
         return signature.sign();
     }
 
-    public boolean verify(byte[] data, byte[] signatureBytes) throws Exception {
+    public boolean verify(byte[] data, byte[] signatureBytes) throws NoSuchAlgorithmException, InvalidKeyException, SignatureException {
         Signature signature = Signature.getInstance("SHA256withRSA");
         signature.initVerify(keyPair.getPublic());
         signature.update(data);

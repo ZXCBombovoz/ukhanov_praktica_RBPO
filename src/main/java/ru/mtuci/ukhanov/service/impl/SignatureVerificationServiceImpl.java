@@ -11,6 +11,7 @@ import ru.mtuci.ukhanov.model.SignatureEntity;
 import ru.mtuci.ukhanov.model.SignatureStatus;
 import ru.mtuci.ukhanov.repository.SignatureAuditRepository;
 import ru.mtuci.ukhanov.repository.SignatureRepository;
+import ru.mtuci.ukhanov.service.SignatureVerificationService;
 import ru.mtuci.ukhanov.service.impl.SignatureServiceImpl;
 
 import java.time.LocalDateTime;
@@ -18,7 +19,7 @@ import java.util.List;
 
 @Service
 @RequiredArgsConstructor
-public class SignatureVerificationServiceImpl {
+public class SignatureVerificationServiceImpl implements SignatureVerificationService {
     private static final Logger logger = LoggerFactory.getLogger(SignatureVerificationServiceImpl.class);
     private final SignatureRepository signatureRepository;
     private final SignatureServiceImpl signatureService;

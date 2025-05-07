@@ -1,33 +1,36 @@
 package ru.mtuci.ukhanov.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import ru.mtuci.ukhanov.configuration.JwtTokenProvider;
+import ru.mtuci.ukhanov.model.SignatureAudit;
 import ru.mtuci.ukhanov.model.SignatureEntity;
 import ru.mtuci.ukhanov.model.SignatureStatus;
-import ru.mtuci.ukhanov.service.impl.SignatureManagementServiceImpl;
-import ru.mtuci.ukhanov.service.impl.SignatureServiceImpl;
+import ru.mtuci.ukhanov.service.SignatureManagementService;
+import ru.mtuci.ukhanov.service.SignatureService;
 
+import jakarta.servlet.http.HttpServletResponse;
 import java.io.ByteArrayOutputStream;
-import java.io.DataOutputStream;
 import java.io.OutputStream;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.List;
+import java.util.UUID;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 @RestController
 @RequestMapping("/api/signatures")
 @RequiredArgsConstructor
 public class SignatureController {
-    private final SignatureManagementServiceImpl service;
+    private final SignatureManagementService service;
     private final JwtTokenProvider jwtTokenProvider;
     private final ObjectMapper objectMapper;
-    private final SignatureServiceImpl signatureService;
+    private final SignatureService signatureService;
 
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
@@ -52,7 +55,7 @@ public class SignatureController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> deleteSignature(
             @RequestHeader("Authorization") String auth,
-            @PathVariable UUID id) {
+            @PathVariable UUID id) throws Exception {
         String login = jwtTokenProvider.getUsername(auth.split(" ")[1]);
         service.deleteSignature(id, login);
         return ResponseEntity.ok().build();
@@ -81,6 +84,38 @@ public class SignatureController {
         return ResponseEntity.ok(service.getSignaturesByStatus(signatureStatus));
     }
 
+    @GetMapping("/audit")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<List<SignatureAudit>> getAuditRecords(
+            @RequestParam(required = false) String changeType,
+            @RequestParam(required = false) String changedBy,
+            @RequestParam(required = false) String start,
+            @RequestParam(required = false) String end) {
+
+        if (changeType != null) {
+            return ResponseEntity.ok(service.getAuditRecordsByChangeType(changeType));
+        } else if (changedBy != null) {
+            return ResponseEntity.ok(service.getAuditRecordsByChangedBy(changedBy));
+        } else if (start != null && end != null) {
+            try {
+                LocalDateTime startDate = LocalDateTime.parse(start);
+                LocalDateTime endDate = LocalDateTime.parse(end);
+                return ResponseEntity.ok(service.getAuditRecordsByDateRange(startDate, endDate));
+            } catch (Exception e) {
+                return ResponseEntity.badRequest().body(null); // Ошибка формата даты
+            }
+        } else {
+            return ResponseEntity.ok(service.getAllAuditRecords());
+        }
+    }
+
+    @GetMapping("/{id}/audit")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<List<SignatureAudit>> getAuditRecordsBySignatureId(@PathVariable UUID id) {
+        return ResponseEntity.ok(service.getAuditRecordsBySignatureId(id));
+    }
+
+
     @GetMapping("/download")
     public void downloadSignatures(@RequestParam(required = false) String since, HttpServletResponse response) throws Exception {
         List<SignatureEntity> signatures;
@@ -91,77 +126,48 @@ public class SignatureController {
             signatures = service.getAllActualSignatures();
         }
 
-        List<String> signaturesList = signatures.stream()
-                .map(s -> s.getId().toString() + ":" + Base64.getEncoder().encodeToString(s.getDigitalSignature()))
-                .collect(Collectors.toList());
+        try (ByteArrayOutputStream dataStream = new ByteArrayOutputStream();
+             ByteArrayOutputStream metaStream = new ByteArrayOutputStream()) {
 
-        Map<String, Object> dataToSign = new HashMap<>();
-        dataToSign.put("count", signatures.size());
-        dataToSign.put("signatures", signaturesList);
-        String dataToSignJson = objectMapper.writeValueAsString(dataToSign);
-        byte[] dataToSignBytes = dataToSignJson.getBytes(StandardCharsets.UTF_8);
+            for (SignatureEntity signature : signatures) {
+                byte[] serialized = service.serializeSignatureFields(signature);
+                dataStream.write(serialized);
 
-        byte[] signatureBytes = signatureService.sign(dataToSignBytes);
-        String manifestSignature = Base64.getEncoder().encodeToString(signatureBytes);
+                String idStr = signature.getId().toString();
+                byte[] digitalSig = signature.getDigitalSignature();
+                if (digitalSig == null) digitalSig = new byte[0];
 
-        Map<String, Object> manifest = new HashMap<>();
-        manifest.put("count", signatures.size());
-        manifest.put("signatures", signaturesList);
-        manifest.put("manifest_signature", manifestSignature);
-        String manifestJson = objectMapper.writeValueAsString(manifest);
+                metaStream.write(idStr.getBytes(StandardCharsets.UTF_8));
+                metaStream.write(":".getBytes(StandardCharsets.UTF_8));
+                metaStream.write(digitalSig);
+                metaStream.write("\n".getBytes(StandardCharsets.UTF_8));
+            }
 
-        ByteArrayOutputStream dataStream = new ByteArrayOutputStream();
-        for (SignatureEntity s : signatures) {
-            writeSignatureToStream(s, dataStream);
+            byte[] data = dataStream.toByteArray();
+            byte[] massiveSignature = metaStream.toByteArray();
+            byte[] countSignature = ByteBuffer.allocate(4).putInt(signatures.size()).array();
+            byte[] manifestSignature = service.generateManifestSignature(signatures.size(), massiveSignature);
+
+            try (ByteArrayOutputStream manifestStream = new ByteArrayOutputStream()) {
+                manifestStream.write(countSignature);
+                manifestStream.write(massiveSignature);
+                manifestStream.write(manifestSignature);
+                byte[] manifest = manifestStream.toByteArray();
+
+                response.setContentType("multipart/mixed; boundary=boundary");
+                try (OutputStream os = response.getOutputStream()) {
+                    os.write(("--boundary\r\n").getBytes());
+                    os.write(("Content-Disposition: attachment; filename=\"manifest.bin\"\r\n").getBytes());
+                    os.write(("Content-Type: application/octet-stream\r\n\r\n").getBytes());
+                    os.write(manifest);
+                    os.write(("\r\n--boundary\r\n").getBytes());
+                    os.write(("Content-Disposition: attachment; filename=\"data.bin\"\r\n").getBytes());
+                    os.write(("Content-Type: application/octet-stream\r\n\r\n").getBytes());
+                    os.write(data);
+                    os.write(("\r\n--boundary--\r\n").getBytes());
+                }
+            }
         }
-
-        response.setContentType("multipart/mixed; boundary=boundary");
-        OutputStream os = response.getOutputStream();
-
-        os.write("--boundary\r\n".getBytes());
-        os.write("Content-Type: application/json\r\n".getBytes());
-        os.write("Content-Disposition: form-data; name=\"manifest\"; filename=\"manifest.json\"\r\n\r\n".getBytes());
-        os.write(manifestJson.getBytes(StandardCharsets.UTF_8));
-        os.write("\r\n".getBytes());
-
-        os.write("--boundary\r\n".getBytes());
-        os.write("Content-Type: application/octet-stream\r\n".getBytes());
-        os.write("Content-Disposition: form-data; name=\"data\"; filename=\"signatures.bin\"\r\n\r\n".getBytes());
-        os.write(dataStream.toByteArray());
-        os.write("\r\n".getBytes());
-
-        os.write("--boundary--\r\n".getBytes());
-        os.flush();
-    }
-
-    private void writeSignatureToStream(SignatureEntity s, OutputStream os) throws Exception {
-        DataOutputStream dos = new DataOutputStream(os);
-
-        dos.writeLong(s.getId().getMostSignificantBits());
-        dos.writeLong(s.getId().getLeastSignificantBits());
-
-        byte[] threatNameBytes = s.getThreatName().getBytes(StandardCharsets.UTF_8);
-        dos.writeInt(threatNameBytes.length);
-        dos.write(threatNameBytes);
-
-        dos.writeInt(s.getFirstBytes().length);
-        dos.write(s.getFirstBytes());
-
-        byte[] remainderHashBytes = s.getRemainderHash().getBytes(StandardCharsets.UTF_8);
-        dos.writeInt(remainderHashBytes.length);
-        dos.write(remainderHashBytes);
-
-        dos.writeInt(s.getRemainderLength());
-
-        byte[] fileTypeBytes = s.getFileType().getBytes(StandardCharsets.UTF_8);
-        dos.writeInt(fileTypeBytes.length);
-        dos.write(fileTypeBytes);
-
-        dos.writeInt(s.getOffsetStart());
-
-        dos.writeInt(s.getOffsetEnd());
-
-        dos.writeLong(s.getVersion());
     }
 
 }
